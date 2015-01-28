@@ -32,6 +32,7 @@ import boto.auth_handler
 import boto.exception
 import boto.plugin
 import boto.utils
+from collections import OrderedDict
 import copy
 import datetime
 from email.utils import formatdate
@@ -375,11 +376,10 @@ class HmacAuthV4Handler(AuthHandler, HmacKeys):
             else:
                 c_value = ' '.join(raw_value.strip().split())
             canonical.append('%s:%s' % (c_name, c_value))
-        return '\n'.join(sorted(canonical))
+        return '\n'.join(canonical)
 
     def signed_headers(self, headers_to_sign):
         l = ['%s' % n.lower().strip() for n in headers_to_sign]
-        l = sorted(l)
         return ';'.join(l)
 
     def canonical_uri(self, http_request):
@@ -569,7 +569,8 @@ class S3HmacAuthV4Handler(HmacAuthV4Handler, AuthHandler):
         # Urlencode the path, **NOT** ``auth_path`` (because vhosting).
         path = urllib.parse.urlparse(http_request.path)
         # Because some quoting may have already been applied, let's back it out.
-        unquoted = urllib.parse.unquote(path.path)
+        # unquoted = urllib.parse.unquote(path.path)
+        unquoted = urllib.parse.unquote(path.path.encode('utf-8'))
         # Requote, this time addressing all characters.
         encoded = urllib.parse.quote(unquoted)
         return encoded
@@ -598,15 +599,17 @@ class S3HmacAuthV4Handler(HmacAuthV4Handler, AuthHandler):
         in the StringToSign.
         """
         host_header_value = self.host_header(self.host, http_request)
-        headers_to_sign = {'Host': host_header_value}
+        headers_to_sign = {'host': host_header_value}
         for name, value in http_request.headers.items():
             lname = name.lower()
             # Hooray for the only difference! The main SigV4 signer only does
             # ``Host`` + ``x-amz-*``. But S3 wants pretty much everything
             # signed, except for authorization itself.
             if lname not in ['authorization']:
-                headers_to_sign[name] = value
-        return headers_to_sign
+                headers_to_sign[lname] = value
+        ordered_headeres = OrderedDict(sorted(headers_to_sign.items(),
+                                              key=lambda t: t[0]))
+        return ordered_headeres
 
     def determine_region_name(self, host):
         # S3's different format(s) of representing region/service from the
